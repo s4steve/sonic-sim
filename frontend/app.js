@@ -245,6 +245,7 @@ function Side({ lab, sel, status, edit, setSel, openTerm, configure, live }) {
     return html`<h2>Link</h2>${end(0)}${end(1)}
       <div class="row"><button class="danger" onClick=${() => { edit((l) => l.links.splice(i, 1)); setSel(null); }}>Delete link</button></div>
       <p class="hint">Port changes take effect on the next deploy.</p>
+      ${link.every((ep) => status[ep.split(":")[0]] === "running") && html`<${Impair} key=${i} lab=${lab.name} i=${i} />`}
       <label>Packet capture (10 s, opens in Wireshark)</label>
       <div class="row">${link.map((ep) => { const [node, port] = ep.split(":"); return status[node] === "running"
         ? html`<a key=${ep} class="btn" href=${`/labs/${lab.name}/capture?node=${node}&port=${port}&seconds=10`} download>${node}:${port}</a>`
@@ -255,6 +256,28 @@ function Side({ lab, sel, status, edit, setSel, openTerm, configure, live }) {
     <p class="hint">Add switches and hosts from the toolbar. Drag from a node's side dot to another node to link them;
       the next free port on each side is picked for you. Click a node or link to edit it.</p>
     <p class="hint">${Object.keys(lab.nodes).length} nodes · ${lab.links.length} links</p>`;
+}
+
+/** Break or degrade a running cable. Runtime only: a redeploy restores it. */
+function Impair({ lab, i }) {
+  const [st, setSt] = useState(null);
+  const [err, setErr] = useState("");
+  useEffect(() => { api(`/labs/${lab}/links/${i}/impair`).then(setSt).catch((e) => setErr(e.message)); }, []);
+  const apply = (next) => api(`/labs/${lab}/links/${i}/impair`, { method: "POST", body: next }).then(setSt).catch((e) => setErr(e.message));
+  if (!st) return err && html`<p class="warn">${err}</p>`;
+  return html`<label>Fault injection</label>
+    <div class="row" style=${{ marginTop: 0 }}>
+      <button class=${st.down ? "primary" : "danger"} onClick=${() => apply({ ...st, down: !st.down })}>${st.down ? "Bring link up" : "Cut link"}</button>
+    </div>
+    <div class="grid2">
+      <label>Delay each way (ms)<input value=${st.delay_ms} onChange=${(e) => setSt({ ...st, delay_ms: e.target.value })} /></label>
+      <label>Loss (%)<input value=${st.loss_pct} onChange=${(e) => setSt({ ...st, loss_pct: e.target.value })} /></label>
+    </div>
+    <div class="row"><button onClick=${() => apply(st)}>Apply delay/loss</button>
+      <button onClick=${() => apply({ ...st, delay_ms: 0, loss_pct: 0 })}>Clear</button></div>
+    ${err && html`<p class="warn">${err}</p>`}
+    <p class="hint">Cutting drops carrier like a pulled cable. BGP only notices when its hold timer expires (up to 180 s); until then
+      ECMP keeps hashing some traffic into the dead path. Shutting the port in config (admin down) is noticed at once. A redeploy clears all faults.</p>`;
 }
 
 function bgpBadge(l) {

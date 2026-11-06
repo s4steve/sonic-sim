@@ -174,6 +174,38 @@ def capture(lab: str, node: str, port: str, seconds: int = 10):
                     headers={"Content-Disposition": f'attachment; filename="{lab}-{node}-{port}.pcap"'})
 
 
+def cable(lab: str, i: int) -> list[tuple[str, str]]:
+    """Lab link i as [(node, ethN), (node, ethN)]."""
+    l = labs.load(lab)
+    links = l.get("links") or []
+    if not 0 <= i < len(links):
+        raise HTTPException(404, f"no link {i}")
+    out = []
+    for ep in links[i]:
+        n, _, p = ep.partition(":")
+        out.append((n, labs.port_to_eth(p) if l["nodes"][n]["kind"] == "sonic" else p))
+    return out
+
+
+@app.get("/labs/{lab}/links/{i}/impair")
+def get_impair(lab: str, i: int):
+    return nodes.impairment(lab, cable(lab, i))
+
+
+@app.post("/labs/{lab}/links/{i}/impair")
+def set_impair(lab: str, i: int, body: dict = Body(...)):
+    """Body: {down: bool, delay_ms: 0-5000, loss_pct: 0-100}. Runtime only: a redeploy clears it."""
+    try:
+        delay, loss = int(body.get("delay_ms") or 0), float(body.get("loss_pct") or 0)
+    except (TypeError, ValueError):
+        raise labs.LabError("delay_ms and loss_pct must be numbers") from None
+    if not (0 <= delay <= 5000 and 0 <= loss <= 100):
+        raise labs.LabError("delay_ms must be 0-5000 and loss_pct 0-100")
+    ends = cable(lab, i)
+    nodes.impair(lab, ends, bool(body.get("down")), delay, loss)
+    return nodes.impairment(lab, ends)
+
+
 @app.websocket("/labs/{lab}/nodes/{node}/terminal")
 async def terminal(ws: WebSocket, lab: str, node: str):
     """Bridge xterm.js <-> `docker exec -it <node> bash` through a pty.

@@ -3,7 +3,7 @@ import htm from "htm";
 import { PORTS, api, ipEntries, setIp, membership, deleteGroup, warnings, diffConfigDb, diffLines, parseFrr, writeFrr } from "./config.js";
 
 const html = htm.bind(React.createElement);
-const TABS = ["System", "Ports", "IP", "VLANs", "PortChannels", "Routing", "Raw"];
+const TABS = ["System", "Ports", "IP", "VLANs", "PortChannels", "VXLAN", "ACL", "Routing", "Raw"];
 
 /** Full-screen editor for one SONiC node's config_db.json + frr.conf. */
 export function ConfigEditor({ lab, node, running, onClose, onSaved }) {
@@ -53,6 +53,8 @@ export function ConfigEditor({ lab, node, running, onClose, onSaved }) {
         ${tab === "IP" && html`<${Ips} ...${props} />`}
         ${tab === "VLANs" && html`<${Groups} ...${props} table="VLAN" />`}
         ${tab === "PortChannels" && html`<${Groups} ...${props} table="PORTCHANNEL" />`}
+        ${tab === "VXLAN" && html`<${Vxlan} ...${props} />`}
+        ${tab === "ACL" && html`<${Acl} ...${props} />`}
         ${tab === "Routing" && html`<${Routing} ...${props} />`}
         ${tab === "Raw" && html`<${Raw} ...${props} setCdb=${setCdb} />`}
       </div>
@@ -168,6 +170,76 @@ function Groups({ cdb, edit, peers, table }) {
       : "PORTCHANNEL + PORTCHANNEL_MEMBER (LACP via teamd). Both ends need a PortChannel with matching member links. Put IPs on the PortChannel, not its members."}<//>`;
 }
 
+function Vxlan({ cdb, edit }) {
+  const [vlan, setVlan] = useState("");
+  const [vni, setVni] = useState("");
+  const src = cdb.VXLAN_TUNNEL?.vtep?.src_ip || "";
+  const maps = Object.entries(cdb.VXLAN_TUNNEL_MAP || {});
+  const vlans = Object.keys(cdb.VLAN || {});
+  const pick = vlan || vlans[0];
+  return html`<label>VTEP source IP (usually Loopback0's address)</label>
+    <input value=${src} placeholder="10.255.1.1" onChange=${(e) => edit((c) => {
+      if (e.target.value) (c.VXLAN_TUNNEL ||= {}).vtep = { ...c.VXLAN_TUNNEL?.vtep, src_ip: e.target.value };
+      else { delete c.VXLAN_TUNNEL; delete c.VXLAN_EVPN_NVO; delete c.VXLAN_TUNNEL_MAP; }
+    })} />
+    <label class="check"><input type="checkbox" disabled=${!src} checked=${!!cdb.VXLAN_EVPN_NVO?.nvo}
+      onChange=${(e) => edit((c) => { if (e.target.checked) c.VXLAN_EVPN_NVO = { nvo: { source_vtep: "vtep" } }; else delete c.VXLAN_EVPN_NVO; })} />
+      Use BGP EVPN to find remote VTEPs and MACs (VXLAN_EVPN_NVO). Also turn on EVPN on the Routing tab.</label>
+    <h3>VLAN ↔ VNI</h3>
+    <table><tbody>${maps.map(([k, r]) => html`<tr key=${k}><td>${r.vlan}</td><td>VNI ${r.vni}</td>
+      <td><button class="danger" onClick=${() => edit((c) => { delete c.VXLAN_TUNNEL_MAP[k]; if (!Object.keys(c.VXLAN_TUNNEL_MAP).length) delete c.VXLAN_TUNNEL_MAP; })}>Remove</button></td></tr>`)}</tbody></table>
+    <div class="row">
+      <select value=${pick} onChange=${(e) => setVlan(e.target.value)}>${vlans.map((v) => html`<option key=${v}>${v}</option>`)}</select>
+      <input class="num" value=${vni} placeholder="1010" onChange=${(e) => setVni(e.target.value.replace(/\D/g, ""))} />
+      <button disabled=${!src || !pick || !vni} onClick=${() => { edit((c) => { (c.VXLAN_TUNNEL_MAP ||= {})[`vtep|map_${vni}_${pick}`] = { vlan: pick, vni }; }); setVni(""); }}>Map</button>
+    </div>
+    <${Hint}>VXLAN_TUNNEL, VXLAN_EVPN_NVO and VXLAN_TUNNEL_MAP. Mapping a VLAN to a VNI stretches it to every VTEP that maps the
+      same VNI: hosts on different leaves end up in one subnet. The VTEP IP must be reachable in the underlay (advertise the loopback in BGP).
+      Use the same VNI on every leaf. sonic-vs bridges this in the Linux kernel, so it really passes traffic.<//>`;
+}
+
+function Acl({ cdb, edit, peers }) {
+  const [name, setName] = useState("");
+  const tables = Object.entries(cdb.ACL_TABLE || {});
+  const rules = (t) => Object.entries(cdb.ACL_RULE || {}).filter(([k]) => k.startsWith(t + "|"));
+  const setRule = (k, f, v) => edit((c) => { const r = c.ACL_RULE[k]; if (v === "") delete r[f]; else r[f] = v; });
+  return html`<p class="warn">sonic-vs accepts ACLs and programs them into its ASIC database, but does not enforce them on traffic
+      (a DROP rule still lets packets through). Use this to learn the config model, and test the effect on real hardware.</p>
+    ${tables.map(([t, tr]) => html`<fieldset key=${t}><legend>${t}</legend>
+      <div class="grid2">
+        <label>Type<select value=${tr.type} onChange=${(e) => edit((c) => { c.ACL_TABLE[t].type = e.target.value; })}>
+          ${["L3", "L3V6", "MIRROR"].map((x) => html`<option key=${x}>${x}</option>`)}</select></label>
+        <label>Stage<select value=${tr.stage || "ingress"} onChange=${(e) => edit((c) => { c.ACL_TABLE[t].stage = e.target.value; })}>
+          <option>ingress</option><option>egress</option></select></label>
+      </div>
+      <label>Bound to ports</label>
+      <div>${PORTS.sonic.filter((p) => peers[p] || (tr.ports || []).includes(p)).map((p) => html`<label class="check inline" key=${p}>
+        <input type="checkbox" checked=${(tr.ports || []).includes(p)} onChange=${(e) => edit((c) => {
+          const ps = new Set(c.ACL_TABLE[t].ports || []); e.target.checked ? ps.add(p) : ps.delete(p); c.ACL_TABLE[t].ports = [...ps];
+        })} /> ${p}</label>`)}</div>
+      <table><thead><tr><th>Rule</th><th>Priority</th><th>Action</th><th>Src IP</th><th>Dst IP</th><th>Proto</th><th>Dst port</th><th></th></tr></thead>
+        <tbody>${rules(t).map(([k, r]) => html`<tr key=${k}><td>${k.split("|")[1]}</td>
+          <td><input class="num" value=${r.PRIORITY || ""} onChange=${(e) => setRule(k, "PRIORITY", e.target.value)} /></td>
+          <td><select value=${r.PACKET_ACTION || "FORWARD"} onChange=${(e) => setRule(k, "PACKET_ACTION", e.target.value)}><option>FORWARD</option><option>DROP</option></select></td>
+          <td><input value=${r.SRC_IP || ""} placeholder="any" onChange=${(e) => setRule(k, "SRC_IP", e.target.value)} /></td>
+          <td><input value=${r.DST_IP || ""} placeholder="any" onChange=${(e) => setRule(k, "DST_IP", e.target.value)} /></td>
+          <td><input class="num" value=${r.IP_PROTOCOL || ""} placeholder="6=tcp" onChange=${(e) => setRule(k, "IP_PROTOCOL", e.target.value)} /></td>
+          <td><input class="num" value=${r.L4_DST_PORT || ""} onChange=${(e) => setRule(k, "L4_DST_PORT", e.target.value)} /></td>
+          <td><button class="danger" onClick=${() => edit((c) => { delete c.ACL_RULE[k]; })}>×</button></td></tr>`)}</tbody></table>
+      <div class="row">
+        <button onClick=${() => edit((c) => { let i = 1; while (c.ACL_RULE?.[`${t}|RULE_${i}`]) i++;
+          (c.ACL_RULE ||= {})[`${t}|RULE_${i}`] = { PRIORITY: String(1000 - i * 10), PACKET_ACTION: "DROP" }; })}>Add rule</button>
+        <button class="danger" onClick=${() => edit((c) => { delete c.ACL_TABLE[t]; for (const [k] of rules(t)) delete c.ACL_RULE[k];
+          for (const x of ["ACL_TABLE", "ACL_RULE"]) if (c[x] && !Object.keys(c[x]).length) delete c[x]; })}>Delete ${t}</button>
+      </div>
+    </fieldset>`)}
+    <div class="row">
+      <input value=${name} placeholder="DATAACL" onChange=${(e) => setName(e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, ""))} />
+      <button disabled=${!name || cdb.ACL_TABLE?.[name]} onClick=${() => { edit((c) => { (c.ACL_TABLE ||= {})[name] = { type: "L3", stage: "ingress", ports: [] }; }); setName(""); }}>Add ACL table</button>
+    </div>
+    <${Hint}>ACL_TABLE binds a table to ports; ACL_RULE entries match fields and FORWARD or DROP. The highest PRIORITY wins.<//>`;
+}
+
 function Routing({ frr, setFrr }) {
   // Rows live here so a blank row you just added survives (writeFrr skips blanks); re-read only
   // when frr.conf changed elsewhere (Raw tab).
@@ -206,6 +278,13 @@ function Routing({ frr, setFrr }) {
           <td><input value=${p} placeholder="10.0.1.0/24" onChange=${(e) => set((n) => { n.bgp.networks[i] = e.target.value; })} /></td>
           <td><button class="danger" onClick=${() => list("networks").del(i)}>Remove</button></td></tr>`)}</tbody></table>
         <button onClick=${list("networks", "").add}>Add network</button>
+        <h3>EVPN</h3>
+        <label class="check"><input type="checkbox" checked=${!!m.bgp.evpn}
+          onChange=${(e) => set((n) => { n.bgp.evpn = e.target.checked ? { allVni: true } : null; })} />
+          Exchange EVPN routes (address-family l2vpn evpn) with every neighbor. Spines need this too, to pass EVPN routes between leaves.</label>
+        ${m.bgp.evpn && html`<label class="check"><input type="checkbox" checked=${m.bgp.evpn.allVni}
+          onChange=${(e) => set((n) => { n.bgp.evpn.allVni = e.target.checked; })} />
+          Advertise all local VNIs (advertise-all-vni). Turn this on for leaves (VTEPs), off for spines.</label>`}
         <h3>Redistribute</h3>
         ${["connected", "static"].map((r) => html`<label class="check" key=${r}><input type="checkbox" checked=${m.bgp.redistribute.includes(r)}
           onChange=${(e) => set((n) => { n.bgp.redistribute = e.target.checked ? [...n.bgp.redistribute, r] : n.bgp.redistribute.filter((x) => x !== r); })} /> ${r}</label>`)}
@@ -229,5 +308,6 @@ function Raw({ cdb, setCdb, frr, setFrr }) {
     <label>frr.conf
       <textarea spellcheck="false" value=${frr} onChange=${(e) => setFrr(e.target.value)} /></label>
   </div>
-  <${Hint}>The same files you'd import or export. Edits here and in the forms stay in sync.<//>`;
+  <${Hint}>The same files you'd import or export. Edits here and in the forms stay in sync. QoS tables (DSCP_TO_TC_MAP, SCHEDULER,
+    PORT_QOS_MAP, …) are edited here: sonic-vs loads defaults for them but, like ACLs, doesn't enforce them on traffic.<//>`;
 }

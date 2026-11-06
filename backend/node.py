@@ -183,6 +183,35 @@ def capture(lab: str, node: str, iface: str, seconds: int) -> bytes:
     return r.stdout
 
 
+
+def impair(lab: str, ends: list[tuple[str, str]], down: bool, delay_ms: int, loss_pct: float) -> None:
+    """Fault-inject a cable given its two (node, ethN) ends. Down on one end drops carrier on both;
+    netem goes on both ends so delay/loss apply in each direction."""
+    (n0, i0), _ = ends
+    r = run(lab, n0, "ip", "link", "set", i0, "down" if down else "up")
+    if r.returncode:
+        raise RuntimeError(f"{n0}: {r.stderr.strip()}")
+    for node, iface in ends:
+        if delay_ms or loss_pct:
+            r = run(lab, node, "tc", "qdisc", "replace", "dev", iface, "root", "netem",
+                    "delay", f"{delay_ms}ms", "loss", f"{loss_pct}%")
+            if r.returncode:
+                raise RuntimeError(f"{node}: {r.stderr.strip()}")
+        else:
+            run(lab, node, "tc", "qdisc", "del", "dev", iface, "root")  # fails harmlessly if none
+
+
+def impairment(lab: str, ends: list[tuple[str, str]]) -> dict:
+    """Read back what impair() set, from the first end."""
+    node, iface = ends[0]
+    link = json.loads(run(lab, node, "ip", "-j", "link", "show", iface).stdout or "[{}]")[0]
+    netem = next((q.get("options", {}) for q in json.loads(run(lab, node, "tc", "-j", "qdisc", "show", "dev", iface).stdout or "[]")
+                  if q.get("kind") == "netem"), {})
+    return {"down": "UP" not in link.get("flags", []),
+            "delay_ms": round(netem.get("delay", {}).get("delay", 0) * 1000),
+            "loss_pct": round(netem.get("loss-random", {}).get("loss", 0) * 100, 2)}
+
+
 if __name__ == "__main__":  # self-check: python -m backend.node
     keys, fields = config_db_removals(
         {"VLAN": {"Vlan10": {"vlanid": "10"}}, "VLAN_MEMBER": {"Vlan10|Ethernet8": {"tagging_mode": "untagged"}},

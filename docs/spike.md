@@ -32,7 +32,7 @@
    | VLAN, VLAN member, SVI | ✅ (kernel `Vlan100@Bridge`) | not yet traffic-tested |
    | PortChannel/LAG (teamd) | ✅ | not yet traffic-tested |
    | VRF | ✅ (kernel VRF device) | not yet traffic-tested |
-   | VXLAN tunnel + map | ✅ (kernel `vtep1-100`) | not yet traffic-tested (Phase 5) |
+   | VXLAN + BGP EVPN (L2 VNI) | ✅ (kernel `vtep-10`, bridged) | ✅ Phase 5: hosts in one subnet on different leaves ping over VNI 1010. MACs learned via EVPN type-2, flood list via type-3; auto route-targets match across leaf ASNs and spines keep the next hop |
    | ACL | ✅ | ❌ **not enforced**: a DROP rule for h1 still passed pings |
    | QoS maps/schedulers/WRED | ✅ (from defaults) | ❌ assumed not enforced (software dataplane) |
 
@@ -43,3 +43,7 @@
 - "Deploy" and "Apply full config" both mean containerlab (re)deploy using the exec recipe above. "Apply change" on a running lab means a merge via `sonic-cfggen --write-to-db`, plus explicit deletes.
 - The status poller and checks use `vtysh` and `redis-cli`, not the SONiC `show` commands that need sudo.
 - `spike/configure.sh` uses the CLI path (`config interface ip add`) and is kept for reference only.
+
+## Phase 5 additions
+- **Link cut** (`ip link set ethN down` on one end) drops carrier on both veth ends, and both SONiC ports go oper down. Unlike an admin shutdown, FRR keeps the BGP session until the hold timer (180 s) expires. That's a realistic gray failure.
+- **netem** (`tc qdisc … netem`) works inside both node types. 20 ms each way gives about 41 ms RTT.

@@ -116,10 +116,19 @@ export function parseFrr(text) {
     let m;
     if ((m = b.head.match(/^ip route (\S+) (\S+)$/))) model.static.push({ prefix: m[1], nexthop: m[2] });
     if (!(m = b.head.match(/^router bgp (\d+)$/))) continue;
-    const bgp = (model.bgp = { asn: m[1], routerId: "", noPolicy: false, neighbors: [], networks: [], redistribute: [] });
+    const bgp = (model.bgp = { asn: m[1], routerId: "", noPolicy: false, neighbors: [], networks: [], redistribute: [], evpn: null });
+    let af = "ipv4", activated = [];
     for (const raw of b.lines.slice(1)) {
       const l = raw.trim();
-      if (["!", "exit", "exit-address-family", "address-family ipv4 unicast"].includes(l)) continue;
+      if (["!", "exit"].includes(l)) continue;
+      if (l === "exit-address-family") { af = "ipv4"; continue; }
+      if ((m = l.match(/^address-family (ipv4 unicast|l2vpn evpn)$/))) { af = m[1] === "l2vpn evpn" ? "evpn" : "ipv4"; if (af === "evpn") bgp.evpn = { allVni: false }; continue; }
+      if (af === "evpn") {
+        if ((m = l.match(/^neighbor (\S+) activate$/))) activated.push(m[1]);
+        else if (l === "advertise-all-vni") bgp.evpn.allVni = true;
+        else model.unsupported.push(l);
+        continue;
+      }
       if ((m = l.match(/^bgp router-id (\S+)$/))) bgp.routerId = m[1];
       else if (l === "no bgp ebgp-requires-policy") bgp.noPolicy = true;
       else if ((m = l.match(/^neighbor (\S+) remote-as (\S+)$/))) bgp.neighbors.push({ ip: m[1], asn: m[2] });
@@ -127,6 +136,9 @@ export function parseFrr(text) {
       else if ((m = l.match(/^redistribute (connected|static)$/))) bgp.redistribute.push(m[1]);
       else model.unsupported.push(l);
     }
+    // The form's EVPN switch means "activate every neighbor"; anything finer is for the Raw tab.
+    if (bgp.evpn && [...activated].sort().join() !== bgp.neighbors.map((n) => n.ip).sort().join())
+      model.unsupported.push(`l2vpn evpn activates ${activated.join(", ") || "no neighbors"}, not every neighbor`);
   }
   return model;
 }
@@ -144,6 +156,9 @@ export function writeFrr(text, model) {
       ...model.bgp.networks.filter(Boolean).map((p) => `  network ${p}`),
       ...model.bgp.redistribute.map((r) => `  redistribute ${r}`),
       " exit-address-family",
+      ...(model.bgp.evpn ? [" address-family l2vpn evpn",
+        ...model.bgp.neighbors.filter((n) => n.ip && n.asn).map((n) => `  neighbor ${n.ip} activate`),
+        model.bgp.evpn.allVni && "  advertise-all-vni", " exit-address-family"] : []),
       "exit",
     ].filter(Boolean).join("\n")] : []),
   ];

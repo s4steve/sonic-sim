@@ -44,7 +44,7 @@ ip nht resolve-via-default
 const m = parseFrr(frr);
 assert.deepEqual(m.static, [{ prefix: "10.9.0.0/16", nexthop: "10.0.12.1" }]);
 assert.deepEqual(m.bgp, { asn: "65001", routerId: "10.0.12.0", noPolicy: true,
-  neighbors: [{ ip: "10.0.12.1", asn: "65002" }], networks: ["10.0.1.0/24"], redistribute: [] });
+  neighbors: [{ ip: "10.0.12.1", asn: "65002" }], networks: ["10.0.1.0/24"], redistribute: [], evpn: null });
 assert.deepEqual(m.unsupported, []);
 assert.deepEqual(parseFrr(writeFrr(frr, m)), m);
 const out = writeFrr(frr, { ...m, static: [], bgp: { ...m.bgp, networks: ["10.0.1.0/24", "10.255.0.1/32"] } });
@@ -54,5 +54,25 @@ assert.match(out, /ip nht resolve-via-default\n$/);
 assert.doesNotMatch(out, /ip route/);
 assert.deepEqual(parseFrr("router bgp 1\n neighbor X peer-group\n").unsupported, ["neighbor X peer-group"]);
 assert.equal(writeFrr("", { static: [], bgp: null, unsupported: [] }), "\n");
+
+// EVPN: the form activates every neighbor; partial activation is left to the Raw tab
+const evpn = `router bgp 65001
+ neighbor 10.1.1.0 remote-as 65100
+ neighbor 10.2.1.0 remote-as 65100
+ address-family ipv4 unicast
+  network 10.255.1.1/32
+ exit-address-family
+ address-family l2vpn evpn
+  neighbor 10.1.1.0 activate
+  neighbor 10.2.1.0 activate
+  advertise-all-vni
+ exit-address-family
+exit
+`;
+const e = parseFrr(evpn);
+assert.deepEqual(e.bgp.evpn, { allVni: true });
+assert.deepEqual(e.unsupported, []);
+assert.equal(writeFrr(evpn, e), evpn);
+assert.match(parseFrr(evpn.replace("  neighbor 10.2.1.0 activate\n", "")).unsupported[0], /not every neighbor/);
 
 console.log("config.js self-check OK");

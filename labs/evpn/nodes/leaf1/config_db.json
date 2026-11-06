@@ -1,0 +1,54 @@
+{
+    "DEVICE_METADATA": {
+        "localhost": {
+            "hostname": "leaf1"
+        }
+    },
+    "INTERFACE": {
+        "Ethernet0": {},
+        "Ethernet0|10.1.1.1/31": {},
+        "Ethernet4": {},
+        "Ethernet4|10.2.1.1/31": {}
+    },
+    "LOOPBACK_INTERFACE": {
+        "Loopback0": {},
+        "Loopback0|10.255.1.1/32": {}
+    },
+    "PORT": {
+        "Ethernet0": {
+            "admin_status": "up"
+        },
+        "Ethernet4": {
+            "admin_status": "up"
+        },
+        "Ethernet8": {
+            "admin_status": "up"
+        }
+    },
+    "VLAN": {
+        "Vlan10": {
+            "vlanid": "10"
+        }
+    },
+    "VLAN_MEMBER": {
+        "Vlan10|Ethernet8": {
+            "tagging_mode": "untagged"
+        }
+    },
+    "VXLAN_EVPN_NVO": {
+        "nvo": {
+            "source_vtep": "vtep"
+        }
+    },
+    "VXLAN_TUNNEL": {
+        "vtep": {
+            "src_ip": "10.255.1.1"
+        }
+    },
+    "VXLAN_TUNNEL_MAP": {
+        "vtep|map_1010_Vlan10": {
+            "vlan": "Vlan10",
+            "vni": "1010"
+        }
+    }
+}
