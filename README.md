@@ -6,10 +6,15 @@ A lab simulator for learning SONiC. Labs run real `docker-sonic-vs` switches wir
 - `labs/<name>/nodes/<node>/config_db.json` and `frr.conf`: each switch's config. CONFIG_DB is merged over sonic-vs defaults at deploy; BGP lives in FRR (see `docs/spike.md`)
 - `backend/`: FastAPI lab engine
 
+## Self-checks
+```bash
+uv run python -m backend.lab && uv run python -m backend.node
+node frontend/config.test.mjs
+```
+
 ## Run (on the lab host)
 ```bash
 uv sync
-uv run python -m backend.lab            # self-check
 uv run uvicorn backend.app:app --port 8080
 ```
 Then from your Mac, tunnel to it and open http://localhost:8080:
@@ -26,6 +31,6 @@ The UI (`frontend/`) has no build step: React, React Flow and xterm.js load as p
 | `GET /labs`, `GET/PUT /labs/{lab}` | list, read (with live status), save topology |
 | `POST /labs/{lab}/deploy`, `/destroy` | (re)deploy from saved files, tear down |
 | `GET/PUT /labs/{lab}/nodes/{node}/config_db.json`, `frr.conf` | export / import |
-| `POST .../push` | merge saved config into the running node (deletions need a redeploy) |
+| `POST .../config` | save `{config_db, frr, apply}`; with `apply`, the running node is made to match, deletions included |
 | `GET .../diff`, `POST .../pull` | saved vs running diff; save running config |
 | `WS .../terminal` | shell in the node (`docker exec -it … bash`) for the web terminal |

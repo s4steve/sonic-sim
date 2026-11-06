@@ -98,11 +98,18 @@ async def import_frr(lab: str, node: str, request: Request):
     return {"ok": True}
 
 
-@app.post("/labs/{lab}/nodes/{node}/push")
-def push(lab: str, node: str):
+@app.post("/labs/{lab}/nodes/{node}/config")
+def save_config(lab: str, node: str, body: dict = Body(...)):
+    """Body: {config_db: {...}, frr: "...", apply: bool}. Saves both files; with apply, makes the
+    running node match them (deletions included)."""
     sonic_node(lab, node)
-    nodes.push(lab, node)
-    return {"ok": True, "note": "merged into the running node; deletions need a redeploy"}
+    cdb = nodes.parse_config_db(json.dumps(body.get("config_db")))
+    frr = body.get("frr")
+    if not isinstance(frr, str):
+        raise labs.LabError("frr must be the frr.conf text")
+    live = bool(body.get("apply")) and any(
+        s["node"] == node and s["state"] == "running" for s in labs.status(lab))
+    return {"applied": live, "warnings": nodes.apply(lab, node, cdb, frr, live)}
 
 
 @app.get("/labs/{lab}/nodes/{node}/diff", response_class=PlainTextResponse)

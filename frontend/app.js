@@ -1,25 +1,13 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { ReactFlow, ReactFlowProvider, useReactFlow, Background, Controls, Handle, Position, ConnectionMode, applyNodeChanges } from "@xyflow/react";
+import { ReactFlow, ReactFlowProvider, useReactFlow, Background, Controls, Handle, Position, ConnectionMode, applyNodeChanges, BaseEdge, EdgeLabelRenderer, getBezierPath } from "@xyflow/react";
 import htm from "htm";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { PORTS, api, ipEntries, membership } from "./config.js";
+import { ConfigEditor } from "./editor.js";
 
 const html = htm.bind(React.createElement);
-
-// ponytail: duplicated from backend/lab.py SONIC_PORTS; serve it from the API if hwskus ever vary
-const PORTS = {
-  sonic: Array.from({ length: 32 }, (_, i) => `Ethernet${i * 4}`),
-  host: Array.from({ length: 8 }, (_, i) => `eth${i + 1}`),
-};
-
-async function api(path, opts = {}) {
-  const r = await fetch(path, { headers: { "content-type": "application/json" }, ...opts,
-    body: opts.body && JSON.stringify(opts.body) });
-  const data = r.headers.get("content-type")?.includes("json") ? await r.json() : await r.text();
-  if (!r.ok) throw new Error(data.detail || data || r.statusText);
-  return data;
-}
 
 const usedPorts = (lab, node) =>
   new Set(lab.links.flat().filter((e) => e.startsWith(node + ":")).map((e) => e.split(":")[1]));
@@ -37,6 +25,20 @@ function LabNode({ data }) {
   </div>`;
 }
 const nodeTypes = { lab: LabNode };
+
+// A cable labelled at each end, next to the device that port belongs to.
+function CableEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data, selected }) {
+  const [path] = getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
+  const at = (f) => `translate(-50%, -50%) translate(${sourceX + (targetX - sourceX) * f}px, ${sourceY + (targetY - sourceY) * f}px)`;
+  return html`<${React.Fragment}>
+    <${BaseEdge} id=${id} path=${path} style=${selected ? { stroke: "var(--accent)", strokeWidth: 2 } : undefined} />
+    <${EdgeLabelRenderer}>
+      <div class="end" style=${{ transform: at(0.22) }}>${data.a}</div>
+      <div class="end" style=${{ transform: at(0.78) }}>${data.b}</div>
+    </${EdgeLabelRenderer}>
+  </${React.Fragment}>`;
+}
+const edgeTypes = { cable: CableEdge };
 
 const toFlowNodes = (lab, status, prev = []) => {
   const seen = { sonic: 0, host: 0 }; // default layout: switches on top, hosts below
@@ -59,6 +61,8 @@ function App() {
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState({ text: "" });
   const [term, setTerm] = useState(null);
+  const [configs, setConfigs] = useState({}); // sonic node -> config_db, for link labels
+  const [editing, setEditing] = useState(null);
   const flow = useReactFlow();
   const mainRef = useRef();
 
@@ -75,7 +79,9 @@ function App() {
     const { status: st, ...l } = data;
     l.links ||= [];
     const s = Object.fromEntries(st.map((c) => [c.node, c.state]));
-    setLab(l); setStatus(s); setFlowNodes(toFlowNodes(l, s)); setSel(null); setDirty(false); setTerm(null);
+    setLab(l); setStatus(s); setFlowNodes(toFlowNodes(l, s)); setSel(null); setDirty(false); setTerm(null); setConfigs({});
+    for (const [n, spec] of Object.entries(l.nodes)) if (spec.kind === "sonic")
+      api(`/labs/${name}/nodes/${n}/config_db.json`).then((c) => setConfigs((cs) => ({ ...cs, [n]: c }))).catch(() => {});
   }
 
   // Poll container state so badges follow deploy/destroy and crashes.
@@ -133,8 +139,18 @@ function App() {
   const edges = lab ? lab.links.map(([a, b], i) => ({
     id: String(i), source: a.split(":")[0], target: b.split(":")[0], selected: sel?.link === i,
     ...(([s, t]) => ({ sourceHandle: s, targetHandle: t }))(sides(a.split(":")[0], b.split(":")[0])),
-    label: `${a.split(":")[1]} ↔ ${b.split(":")[1]}`,
+    type: "cable", data: { a: portLabel(a), b: portLabel(b) },
   })) : [];
+  // What each cabled port is: its IP, or the VLAN/PortChannel it belongs to.
+  function portLabel(ep) {
+    const [n, p] = ep.split(":"), c = configs[n];
+    if (lab.nodes[n]?.kind === "host") return lab.nodes[n].ip ? html`${p}<br />${lab.nodes[n].ip}` : p;
+    if (!c) return p;
+    const lag = membership(c, "PORTCHANNEL_MEMBER")[p]?.[0];
+    const vlans = membership(c, "VLAN_MEMBER")[lag || p];
+    const ip = ipEntries(c).find((e) => e.ifname === (lag || p))?.ip;
+    return html`${p}${[lag, vlans?.join(","), ip].filter(Boolean).map((x) => html`<br />${x}`)}`;
+  }
   const deployed = Object.values(status).some((s) => s === "running");
 
   return html`
@@ -156,7 +172,7 @@ function App() {
       <span class=${"msg" + (msg.err ? " err" : "")}>${dirty ? "unsaved changes · " : ""}${msg.text}</span>
     </header>
     <main ref=${mainRef}>
-      ${lab && html`<${ReactFlow} nodes=${flowNodes} edges=${edges} nodeTypes=${nodeTypes}
+      ${lab && html`<${ReactFlow} nodes=${flowNodes} edges=${edges} nodeTypes=${nodeTypes} edgeTypes=${edgeTypes}
         connectionMode=${ConnectionMode.Loose} fitView
         onNodesChange=${(ch) => { setFlowNodes((ns) => applyNodeChanges(ch, ns)); if (ch.some((c) => c.type === "position" && c.dragging === false)) setDirty(true); }}
         onConnect=${onConnect}
@@ -168,12 +184,14 @@ function App() {
       </${ReactFlow}>`}
     </main>
     <aside>${lab && html`<${Side} lab=${lab} sel=${sel} status=${status} edit=${edit} setSel=${setSel}
-      openTerm=${(node) => setTerm(node)} />`}</aside>
+      openTerm=${(node) => setTerm(node)} configure=${setEditing} />`}</aside>
+    ${editing && html`<${ConfigEditor} key=${editing} lab=${lab} node=${editing} running=${status[editing] === "running"}
+      onClose=${() => setEditing(null)} onSaved=${(n, c) => setConfigs((cs) => ({ ...cs, [n]: c }))} />`}
     ${term && html`<${Term} key=${lab.name + term} lab=${lab.name} node=${term} kind=${lab.nodes[term]?.kind} close=${() => setTerm(null)} />`}
   `;
 }
 
-function Side({ lab, sel, status, edit, setSel, openTerm }) {
+function Side({ lab, sel, status, edit, setSel, openTerm, configure }) {
   if (sel?.node && lab.nodes[sel.node]) {
     const n = sel.node, spec = lab.nodes[n];
     const set = (k) => (e) => edit((l) => { l.nodes[n][k] = e.target.value; });
@@ -184,10 +202,11 @@ function Side({ lab, sel, status, edit, setSel, openTerm }) {
       <label>Ports in use</label>
       <div>${[...usedPorts(lab, n)].join(", ") || "none"}</div>
       <div class="row">
+        ${spec.kind === "sonic" && html`<button class="primary" onClick=${() => configure(n)}>Configure</button>`}
         <button disabled=${status[n] !== "running"} onClick=${() => openTerm(n)}>Open terminal</button>
         <button class="danger" onClick=${() => { edit((l) => { delete l.nodes[n]; l.links = l.links.filter((lk) => !lk.some((e) => e.startsWith(n + ":"))); }); setSel(null); }}>Delete node</button>
       </div>
-      ${spec.kind === "sonic" && html`<p class="hint">Config files: labs/${lab.name}/nodes/${n}/config_db.json and frr.conf. Config editors come in Phase 3.</p>`}
+      ${spec.kind === "sonic" && html`<p class="hint">Saved as labs/${lab.name}/nodes/${n}/config_db.json and frr.conf.</p>`}
       ${status[n] !== "running" && html`<p class="hint">Deploy the lab to open a terminal.</p>`}`;
   }
   if (sel && sel.link !== undefined && lab.links[sel.link]) {
