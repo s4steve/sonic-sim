@@ -208,7 +208,11 @@ function App() {
       </${ReactFlow}>`}
     </main>
     <aside>${lab && html`<${Side} lab=${lab} sel=${sel} status=${status} edit=${edit} setSel=${setSel}
-      openTerm=${(node) => setTerm(node)} configure=${setEditing} live=${live} lessonMd=${lessonMd} running=${anyRunning}
+      openTerm=${(node) => setTerm(node)} configure=${async (n) => {
+      // The editor talks to the server, which only knows saved nodes: save a newly added switch first.
+      if (dirty) { try { await save(); } catch (e) { return say(e.message, true); } }
+      setEditing(n);
+    }} live=${live} lessonMd=${lessonMd} running=${anyRunning}
       reload=${() => open(lab.name)} say=${say} />`}</aside>
     ${lessonsOpen && html`<${Lessons} onClose=${() => setLessonsOpen(false)} openLab=${async (name) => {
       setLessonsOpen(false); setLabs(await api("/labs")); await open(name);

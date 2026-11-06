@@ -37,7 +37,8 @@ def command_failed(_: Request, e: RuntimeError):
 
 def sonic_node(lab: str, node: str) -> None:
     if labs.load(lab)["nodes"].get(node, {}).get("kind") != "sonic":
-        raise HTTPException(404, f"no sonic node {node!r} in lab {lab!r}")
+        raise HTTPException(404, f"no sonic node {node!r} in lab {lab!r} (save the lab after adding a switch)")
+    labs.ensure_node_files(lab, node)
 
 
 @app.get("/labs")

@@ -142,20 +142,25 @@ def to_clab(lab: dict) -> dict:
     }
 
 
+def ensure_node_files(lab: str, node: str) -> Path:
+    """Give a sonic node its two config files if it has none yet (new switches start empty)."""
+    nd = node_dir(lab, node)
+    nd.mkdir(parents=True, exist_ok=True)
+    cdb = nd / "config_db.json"
+    if not cdb.exists():  # merged over sonic-vs defaults at boot, so a stub is enough
+        cdb.write_text(json.dumps({"DEVICE_METADATA": {"localhost": {"hostname": node}}}, indent=4) + "\n")
+    (nd / "frr.conf").touch()
+    for f in nd.iterdir():
+        f.chmod(0o644)  # containers read these as a different user
+    return nd
+
+
 def write_clab(lab: dict) -> Path:
     """Write the generated topology, making sure every sonic node has both config files."""
     d = lab_dir(lab["name"])
     for n, spec in lab["nodes"].items():
-        if spec["kind"] != "sonic":
-            continue
-        nd = node_dir(lab["name"], n)
-        nd.mkdir(parents=True, exist_ok=True)
-        cdb = nd / "config_db.json"
-        if not cdb.exists():  # merged over sonic-vs defaults at boot, so a stub is enough
-            cdb.write_text(json.dumps({"DEVICE_METADATA": {"localhost": {"hostname": n}}}, indent=4) + "\n")
-        (nd / "frr.conf").touch()
-        for f in nd.iterdir():
-            f.chmod(0o644)  # containers read these as a different user
+        if spec["kind"] == "sonic":
+            ensure_node_files(lab["name"], n)
     path = d / f"{lab['name']}.clab.yml"
     path.write_text("# GENERATED from lab.yaml by backend/lab.py: do not edit\n" + yaml.safe_dump(to_clab(lab), sort_keys=False))
     return path
