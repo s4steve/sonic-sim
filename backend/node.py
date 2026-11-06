@@ -151,6 +151,38 @@ def pull(lab: str, node: str) -> None:
         (nd / name).chmod(0o644)
 
 
+# One Redis round trip for every port's and PortChannel's oper status (fixed script, no user input).
+_OPER_LUA = ("local r={} for _,p in ipairs({'PORT_TABLE:Ethernet*','LAG_TABLE:PortChannel*'}) do "
+             "for _,k in ipairs(redis.call('keys',p)) do r[#r+1]=k..' '..(redis.call('hget',k,'oper_status') or '') end end return r")
+
+
+def bgp_peers(lab: str, node: str) -> dict:
+    """{peer_ip: {state, remoteAs, pfxRcd}} from FRR; {} if BGP isn't configured."""
+    r = run(lab, node, "vtysh", "-c", "show bgp summary json")
+    try:
+        peers = json.loads(r.stdout or "{}").get("ipv4Unicast", {}).get("peers", {})
+    except json.JSONDecodeError:
+        return {}
+    return {ip: {k: p.get(k) for k in ("state", "remoteAs", "pfxRcd")} for ip, p in peers.items()}
+
+
+def live(lab: str, node: str) -> dict:
+    """{ports: {Ethernet0: "up", PortChannel1: "down", ...}, bgp: {...}} for one running sonic node."""
+    r = run(lab, node, "redis-cli", "-n", "0", "--raw", "eval", _OPER_LUA, "0")
+    ports = dict(line.split(":", 1)[1].split(" ", 1) for line in r.stdout.splitlines() if " " in line)
+    return {"ports": ports, "bgp": bgp_peers(lab, node)}
+
+
+def capture(lab: str, node: str, iface: str, seconds: int) -> bytes:
+    """pcap of `seconds` of traffic on the container's ethN (the cable itself), max 5000 packets."""
+    r = subprocess.run(["docker", "exec", container(lab, node), "timeout", str(seconds),
+                        "tcpdump", "-i", iface, "-U", "-c", "5000", "-w", "-"],
+                       capture_output=True, timeout=seconds + 15)
+    if not r.stdout:  # timeout exits 124 even on success; only an empty pcap is a failure
+        raise RuntimeError(f"capture on {node}:{iface} failed: {r.stderr.decode()[-500:]}")
+    return r.stdout
+
+
 if __name__ == "__main__":  # self-check: python -m backend.node
     keys, fields = config_db_removals(
         {"VLAN": {"Vlan10": {"vlanid": "10"}}, "VLAN_MEMBER": {"Vlan10|Ethernet8": {"tagging_mode": "untagged"}},

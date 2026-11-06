@@ -59,6 +59,17 @@ button.danger { color: var(--err); }
 .node .meta { font-size: 11px; color: var(--muted); }
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--down); vertical-align: middle; margin-left: 4px; }
 .dot.running { background: var(--up); }
+.bgp { font-size: 10px; margin-top: 3px; border-radius: 4px; padding: 0 4px; }
+.bgp.good { color: var(--up); }
+.bgp.bad { color: #fff; background: var(--err); }
+.port { display: inline-block; font-size: 12px; margin: 2px 4px 2px 0; padding: 0 5px; border-radius: 4px; border: 1px solid var(--border); }
+.port.up { border-color: var(--up); color: var(--up); }
+.port.down { border-color: var(--err); color: var(--err); }
+a.btn { font-size: 13px; color: var(--text); text-decoration: none; border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; }
+a.btn:hover { border-color: var(--accent); }
+textarea.code { width: 100%; height: 50vh; font: 12px/1.4 ui-monospace, monospace; color: var(--text); background: var(--bg);
+  border: 1px solid var(--border); border-radius: 6px; padding: 8px; }
+.result { padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
 .react-flow__node.selected .node { outline: 2px solid var(--accent); }
 .end { position: absolute; font-size: 10px; line-height: 1.25; text-align: center; padding: 1px 4px; border-radius: 4px;
   background: var(--panel); border: 1px solid var(--border); color: var(--text); pointer-events: none; white-space: nowrap; }

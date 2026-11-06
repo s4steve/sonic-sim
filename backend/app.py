@@ -8,15 +8,17 @@ import json
 import os
 import pty
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from fcntl import ioctl
 from pathlib import Path
 from struct import pack
 from termios import TIOCSWINSZ
 
 from fastapi import Body, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+from . import checks as checker
 from . import lab as labs
 from . import node as nodes
 
@@ -123,6 +125,53 @@ def pull(lab: str, node: str):
     sonic_node(lab, node)
     nodes.pull(lab, node)
     return {"ok": True}
+
+
+@app.get("/labs/{lab}/live")
+def live(lab: str):
+    """Per running sonic node: port oper status and BGP peers. Polled by the canvas."""
+    l = labs.load(lab)
+    running = [s["node"] for s in labs.status(lab) if s["state"] == "running" and l["nodes"].get(s["node"], {}).get("kind") == "sonic"]
+
+    def one(n):
+        try:
+            return n, nodes.live(lab, n)
+        except Exception as e:
+            return n, {"error": str(e)[-200:]}
+    with ThreadPoolExecutor(8) as pool:
+        return dict(pool.map(one, running))
+
+
+@app.get("/labs/{lab}/checks", response_class=PlainTextResponse)
+def get_checks(lab: str):
+    labs.load(lab)
+    return checker.path(lab).read_text() if checker.path(lab).exists() else ""
+
+
+@app.put("/labs/{lab}/checks")
+async def put_checks(lab: str, request: Request):
+    text = (await request.body()).decode()
+    checker.parse(lab, text)
+    checker.path(lab).write_text(text)
+    return {"ok": True}
+
+
+@app.post("/labs/{lab}/checks/run")
+def run_checks(lab: str):
+    return checker.run_all(lab)
+
+
+@app.get("/labs/{lab}/capture")
+def capture(lab: str, node: str, port: str, seconds: int = 10):
+    """Download a pcap of one cable end. `port` is the lab.yaml name (Ethernet0 or eth1)."""
+    l = labs.load(lab)
+    kind = l["nodes"].get(node, {}).get("kind")
+    if not kind or not any(f"{node}:{port}" in link for link in l.get("links") or []):
+        raise HTTPException(404, f"{node}:{port} isn't cabled in lab {lab!r}")
+    iface = labs.port_to_eth(port) if kind == "sonic" else port
+    pcap = nodes.capture(lab, node, iface, max(1, min(seconds, 60)))
+    return Response(pcap, media_type="application/vnd.tcpdump.pcap",
+                    headers={"Content-Disposition": f'attachment; filename="{lab}-{node}-{port}.pcap"'})
 
 
 @app.websocket("/labs/{lab}/nodes/{node}/terminal")

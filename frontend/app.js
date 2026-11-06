@@ -22,6 +22,8 @@ function LabNode({ data }) {
     <div class="name">${data.label}</div>
     <div class="meta">${data.kind === "sonic" ? "SONiC" : data.ip || "host"}
       <span class=${"dot " + (data.state || "")} title=${data.state || "not deployed"}></span></div>
+    ${data.bgp && html`<div class=${"bgp " + (data.bgp.up < data.bgp.total ? "bad" : "good")}
+      title=${data.bgp.detail}>BGP ${data.bgp.up}/${data.bgp.total}</div>`}
   </div>`;
 }
 const nodeTypes = { lab: LabNode };
@@ -31,7 +33,8 @@ function CableEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, tar
   const [path] = getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
   const at = (f) => `translate(-50%, -50%) translate(${sourceX + (targetX - sourceX) * f}px, ${sourceY + (targetY - sourceY) * f}px)`;
   return html`<${React.Fragment}>
-    <${BaseEdge} id=${id} path=${path} style=${selected ? { stroke: "var(--accent)", strokeWidth: 2 } : undefined} />
+    <${BaseEdge} id=${id} path=${path} style=${{ ...(data.oper && { stroke: data.oper === "up" ? "var(--up)" : "var(--err)",
+      strokeWidth: 2, strokeDasharray: data.oper === "up" ? undefined : "6 4" }), ...(selected && { stroke: "var(--accent)", strokeWidth: 3 }) }} />
     <${EdgeLabelRenderer}>
       <div class="end" style=${{ transform: at(0.22) }}>${data.a}</div>
       <div class="end" style=${{ transform: at(0.78) }}>${data.b}</div>
@@ -63,6 +66,8 @@ function App() {
   const [term, setTerm] = useState(null);
   const [configs, setConfigs] = useState({}); // sonic node -> config_db, for link labels
   const [editing, setEditing] = useState(null);
+  const [live, setLive] = useState({}); // sonic node -> {ports, bgp} while deployed
+  const [checksOpen, setChecksOpen] = useState(false);
   const flow = useReactFlow();
   const mainRef = useRef();
 
@@ -79,7 +84,7 @@ function App() {
     const { status: st, ...l } = data;
     l.links ||= [];
     const s = Object.fromEntries(st.map((c) => [c.node, c.state]));
-    setLab(l); setStatus(s); setFlowNodes(toFlowNodes(l, s)); setSel(null); setDirty(false); setTerm(null); setConfigs({});
+    setLab(l); setStatus(s); setFlowNodes(toFlowNodes(l, s)); setSel(null); setDirty(false); setTerm(null); setConfigs({}); setLive({});
     for (const [n, spec] of Object.entries(l.nodes)) if (spec.kind === "sonic")
       api(`/labs/${name}/nodes/${n}/config_db.json`).then((c) => setConfigs((cs) => ({ ...cs, [n]: c }))).catch(() => {});
   }
@@ -91,7 +96,14 @@ function App() {
       .then((d) => setStatus(Object.fromEntries(d.status.map((c) => [c.node, c.state])))).catch(() => {}), 5000);
     return () => clearInterval(t);
   }, [lab?.name]);
-  useEffect(() => { setFlowNodes((ns) => ns.map((n) => ({ ...n, data: { ...n.data, state: status[n.id] } }))); }, [status]);
+  const anyRunning = Object.values(status).some((s) => s === "running");
+  useEffect(() => {
+    if (!lab || !anyRunning) { setLive({}); return; }
+    const poll = () => api(`/labs/${lab.name}/live`).then(setLive).catch(() => {});
+    poll(); const t = setInterval(poll, 5000);
+    return () => clearInterval(t);
+  }, [lab?.name, anyRunning]);
+  useEffect(() => { setFlowNodes((ns) => ns.map((n) => ({ ...n, data: { ...n.data, state: status[n.id], bgp: bgpBadge(live[n.id]) } }))); }, [status, live]);
 
   const edit = (fn) => {
     setLab((l) => { const next = structuredClone(l); fn(next); setFlowNodes((ns) => toFlowNodes(next, status, ns)); return next; });
@@ -139,8 +151,13 @@ function App() {
   const edges = lab ? lab.links.map(([a, b], i) => ({
     id: String(i), source: a.split(":")[0], target: b.split(":")[0], selected: sel?.link === i,
     ...(([s, t]) => ({ sourceHandle: s, targetHandle: t }))(sides(a.split(":")[0], b.split(":")[0])),
-    type: "cable", data: { a: portLabel(a), b: portLabel(b) },
+    type: "cable", data: { a: portLabel(a), b: portLabel(b), oper: cableOper(a, b) },
   })) : [];
+  // A cable is up when every SONiC end reports oper up (hosts don't report).
+  function cableOper(...eps) {
+    const states = eps.map((ep) => { const [n, p] = ep.split(":"); return live[n]?.ports?.[p]; }).filter(Boolean);
+    return !states.length ? null : states.every((x) => x === "up") ? "up" : "down";
+  }
   // What each cabled port is: its IP, or the VLAN/PortChannel it belongs to.
   function portLabel(ep) {
     const [n, p] = ep.split(":"), c = configs[n];
@@ -169,6 +186,7 @@ function App() {
       <button class="danger" disabled=${!deployed || !!busy}
         onClick=${() => confirm("Destroy all lab containers?") && run("Destroy", async () => {
           await api(`/labs/${lab.name}/destroy`, { method: "POST" }); setStatus({}); setTerm(null); })}>Destroy</button>
+      <button disabled=${!lab} onClick=${() => setChecksOpen(true)}>Checks</button>
       <span class=${"msg" + (msg.err ? " err" : "")}>${dirty ? "unsaved changes · " : ""}${msg.text}</span>
     </header>
     <main ref=${mainRef}>
@@ -184,14 +202,15 @@ function App() {
       </${ReactFlow}>`}
     </main>
     <aside>${lab && html`<${Side} lab=${lab} sel=${sel} status=${status} edit=${edit} setSel=${setSel}
-      openTerm=${(node) => setTerm(node)} configure=${setEditing} />`}</aside>
+      openTerm=${(node) => setTerm(node)} configure=${setEditing} live=${live} />`}</aside>
+    ${checksOpen && html`<${Checks} lab=${lab.name} running=${anyRunning} onClose=${() => setChecksOpen(false)} />`}
     ${editing && html`<${ConfigEditor} key=${editing} lab=${lab} node=${editing} running=${status[editing] === "running"}
       onClose=${() => setEditing(null)} onSaved=${(n, c) => setConfigs((cs) => ({ ...cs, [n]: c }))} />`}
     ${term && html`<${Term} key=${lab.name + term} lab=${lab.name} node=${term} kind=${lab.nodes[term]?.kind} close=${() => setTerm(null)} />`}
   `;
 }
 
-function Side({ lab, sel, status, edit, setSel, openTerm, configure }) {
+function Side({ lab, sel, status, edit, setSel, openTerm, configure, live }) {
   if (sel?.node && lab.nodes[sel.node]) {
     const n = sel.node, spec = lab.nodes[n];
     const set = (k) => (e) => edit((l) => { l.nodes[n][k] = e.target.value; });
@@ -200,7 +219,12 @@ function Side({ lab, sel, status, edit, setSel, openTerm, configure }) {
         <label>IP on eth1 (CIDR)</label><input value=${spec.ip || ""} placeholder="e.g. 192.168.10.10/24" onChange=${set("ip")} />
         <label>Default gateway</label><input value=${spec.gw || ""} placeholder="e.g. 192.168.10.1" onChange=${set("gw")} />`}
       <label>Ports in use</label>
-      <div>${[...usedPorts(lab, n)].join(", ") || "none"}</div>
+      <div>${[...usedPorts(lab, n)].map((p) => html`<span key=${p} class=${"port " + (live[n]?.ports?.[p] || "")}>${p}</span>`)}
+        ${!usedPorts(lab, n).size && "none"}</div>
+      ${live[n]?.bgp && Object.keys(live[n].bgp).length > 0 && html`<label>BGP peers</label>
+        <table><tbody>${Object.entries(live[n].bgp).map(([ip, p]) => html`<tr key=${ip}>
+          <td>${ip}</td><td class="muted">AS ${p.remoteAs}</td>
+          <td class=${p.state === "Established" ? "ok" : "warn"}>${p.state}${p.state === "Established" ? ` · ${p.pfxRcd} pfx` : ""}</td></tr>`)}</tbody></table>`}
       <div class="row">
         ${spec.kind === "sonic" && html`<button class="primary" onClick=${() => configure(n)}>Configure</button>`}
         <button disabled=${status[n] !== "running"} onClick=${() => openTerm(n)}>Open terminal</button>
@@ -220,12 +244,61 @@ function Side({ lab, sel, status, edit, setSel, openTerm, configure }) {
     };
     return html`<h2>Link</h2>${end(0)}${end(1)}
       <div class="row"><button class="danger" onClick=${() => { edit((l) => l.links.splice(i, 1)); setSel(null); }}>Delete link</button></div>
-      <p class="hint">Port changes take effect on the next deploy.</p>`;
+      <p class="hint">Port changes take effect on the next deploy.</p>
+      <label>Packet capture (10 s, opens in Wireshark)</label>
+      <div class="row">${link.map((ep) => { const [node, port] = ep.split(":"); return status[node] === "running"
+        ? html`<a key=${ep} class="btn" href=${`/labs/${lab.name}/capture?node=${node}&port=${port}&seconds=10`} download>${node}:${port}</a>`
+        : html`<span key=${ep} class="muted">${node} not running</span>`; })}</div>
+      <p class="hint">Captures on that end of the cable for 10 seconds, then downloads a .pcap.</p>`;
   }
   return html`<h2>${lab.name}</h2>
     <p class="hint">Add switches and hosts from the toolbar. Drag from a node's side dot to another node to link them;
       the next free port on each side is picked for you. Click a node or link to edit it.</p>
     <p class="hint">${Object.keys(lab.nodes).length} nodes · ${lab.links.length} links</p>`;
+}
+
+function bgpBadge(l) {
+  const peers = Object.entries(l?.bgp || {});
+  if (!peers.length) return null;
+  const up = peers.filter(([, p]) => p.state === "Established").length;
+  return { up, total: peers.length, detail: peers.map(([ip, p]) => `${ip} ${p.state}`).join("\n") };
+}
+
+function Checks({ lab, running, onClose }) {
+  const [text, setText] = useState(null);
+  const [saved, setSaved] = useState("");
+  const [results, setResults] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  useEffect(() => { api(`/labs/${lab}/checks`).then((t) => { setText(t); setSaved(t); }).catch((e) => setErr(e.message)); }, []);
+  async function runChecks() {
+    setBusy(true); setErr(""); setResults(null);
+    try {
+      if (text !== saved) { await api(`/labs/${lab}/checks`, { method: "PUT", body: text }); setSaved(text); }
+      setResults(await api(`/labs/${lab}/checks/run`, { method: "POST" }));
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
+  }
+  const passed = results?.filter((r) => r.ok).length;
+  return html`<div class="modal"><div class="dialog wide">
+    <div class="dlg-head"><h2>${lab} checks</h2><span style=${{ flex: 1 }}></span><button onClick=${onClose}>Close</button></div>
+    <div class="dlg-body grid2">
+      <label>checks.yaml
+        <textarea class="code" spellcheck="false" value=${text ?? ""} onChange=${(e) => setText(e.target.value)} />
+        <span class="hint">One check per line:<br />
+          <code>- {from: h1, ping: 10.0.2.10}</code><br /><code>- {node: leaf1, bgp_established: 2}</code><br />
+          <code>- {node: leaf1, route: 10.0.2.0/24, via: bgp}</code></span></label>
+      <div>
+        <div class="row" style=${{ marginTop: 0 }}>
+          <button class="primary" disabled=${busy || !running || text === null} onClick=${runChecks}>${busy ? "Running…" : "Run checks"}</button>
+          ${!running && html`<span class="muted">Deploy the lab first.</span>`}
+          ${results && html`<strong class=${passed === results.length ? "ok" : "warn"}>${passed}/${results.length} passed</strong>`}
+        </div>
+        ${err && html`<p class="warn">${err}</p>`}
+        ${results?.map((r, i) => html`<div key=${i} class="result">
+          <span class=${r.ok ? "ok" : "warn"}>${r.ok ? "✓" : "✗"}</span> ${r.check}<div class="muted">${r.detail}</div></div>`)}
+      </div>
+    </div>
+  </div></div>`;
 }
 
 function Term({ lab, node, kind, close }) {

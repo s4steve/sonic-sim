@@ -1,0 +1,17 @@
+# Two-tier Clos: every leaf peers eBGP with both spines. Spines share AS 65100,
+# so leaf-to-leaf traffic has two equal paths (ECMP) and survives losing a spine.
+name: leaf-spine
+nodes:
+  spine1: {kind: sonic, pos: [120, 60]}
+  spine2: {kind: sonic, pos: [460, 60]}
+  leaf1: {kind: sonic, pos: [120, 300]}
+  leaf2: {kind: sonic, pos: [460, 300]}
+  h1: {kind: host, ip: 10.0.1.10/24, gw: 10.0.1.1, pos: [120, 500]}
+  h2: {kind: host, ip: 10.0.2.10/24, gw: 10.0.2.1, pos: [460, 500]}
+links:
+- ['spine1:Ethernet0', 'leaf1:Ethernet0']
+- ['spine1:Ethernet4', 'leaf2:Ethernet0']
+- ['spine2:Ethernet0', 'leaf1:Ethernet4']
+- ['spine2:Ethernet4', 'leaf2:Ethernet4']
+- ['leaf1:Ethernet8', 'h1:eth1']
+- ['leaf2:Ethernet8', 'h2:eth1']

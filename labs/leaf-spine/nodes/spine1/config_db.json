@@ -1,0 +1,25 @@
+{
+    "DEVICE_METADATA": {
+        "localhost": {
+            "hostname": "spine1"
+        }
+    },
+    "INTERFACE": {
+        "Ethernet0": {},
+        "Ethernet0|10.1.1.0/31": {},
+        "Ethernet4": {},
+        "Ethernet4|10.1.2.0/31": {}
+    },
+    "LOOPBACK_INTERFACE": {
+        "Loopback0": {},
+        "Loopback0|10.255.0.1/32": {}
+    },
+    "PORT": {
+        "Ethernet0": {
+            "admin_status": "up"
+        },
+        "Ethernet4": {
+            "admin_status": "up"
+        }
+    }
+}
