@@ -1,0 +1,11 @@
+# h1 -- sw1 (AS65001) == eBGP == sw2 (AS65002) -- h2
+name: two-switch
+nodes:
+  sw1: {kind: sonic}
+  sw2: {kind: sonic}
+  h1: {kind: host, ip: 10.0.1.10/24, gw: 10.0.1.1}
+  h2: {kind: host, ip: 10.0.2.10/24, gw: 10.0.2.1}
+links:
+  - [sw1:Ethernet0, sw2:Ethernet0]
+  - [sw1:Ethernet4, h1:eth1]
+  - [sw2:Ethernet4, h2:eth1]

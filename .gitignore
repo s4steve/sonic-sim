@@ -1,0 +1,7 @@
+__pycache__/
+.venv/
+uv.lock
+# containerlab output
+labs/*/clab-*/
+labs/*/*.clab.yml
+labs/*/.*.clab.yml.bak
