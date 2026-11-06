@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SONiC Lab</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xyflow/react@12.3.6/dist/style.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css">
+<script type="importmap">
+{"imports": {
+  "react": "https://esm.sh/react@18.3.1",
+  "react/jsx-runtime": "https://esm.sh/react@18.3.1/jsx-runtime",
+  "react-dom/client": "https://esm.sh/react-dom@18.3.1/client?external=react",
+  "@xyflow/react": "https://esm.sh/@xyflow/react@12.3.6?external=react,react-dom",
+  "react-dom": "https://esm.sh/react-dom@18.3.1?external=react",
+  "htm": "https://esm.sh/htm@3.1.1",
+  "@xterm/xterm": "https://esm.sh/@xterm/xterm@5.5.0",
+  "@xterm/addon-fit": "https://esm.sh/@xterm/addon-fit@0.10.0"
+}}
+</script>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --border: #d9dde3; --text: #1b1f24; --muted: #667080;
+  --accent: #2563eb; --sonic: #e8efff; --host: #eef7ee; --up: #16a34a; --down: #9aa3ae; --err: #dc2626;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1216; --panel: #171b21; --border: #2a313a; --text: #e6e9ee; --muted: #8b95a3;
+    --accent: #60a5fa; --sonic: #1c2740; --host: #1b2a1f; --up: #22c55e; --down: #4b5563; --err: #f87171;
+  }
+}
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, sans-serif; }
+#root { display: grid; grid-template: "top top" auto "canvas side" 1fr "term term" auto / 1fr 280px; }
+header { grid-area: top; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 8px 12px;
+  background: var(--panel); border-bottom: 1px solid var(--border); }
+header h1 { font-size: 15px; margin: 0 8px 0 0; }
+.msg { color: var(--muted); margin-left: auto; font-size: 13px; }
+.msg.err { color: var(--err); }
+main { grid-area: canvas; position: relative; min-height: 300px; }
+aside { grid-area: side; background: var(--panel); border-left: 1px solid var(--border); padding: 12px; overflow: auto; }
+aside h2 { font-size: 14px; margin: 0 0 8px; }
+aside label { display: block; margin: 8px 0 2px; color: var(--muted); font-size: 12px; }
+aside input, aside select { width: 100%; }
+button, select, input { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--border);
+  border-radius: 6px; padding: 4px 10px; }
+button { cursor: pointer; }
+button:hover:not(:disabled) { border-color: var(--accent); }
+button:disabled { opacity: .5; cursor: default; }
+button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+button.danger { color: var(--err); }
+.row { display: flex; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
+.hint { color: var(--muted); font-size: 12px; margin-top: 12px; }
+.node { padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border); min-width: 90px; text-align: center; color: var(--text); }
+.node.sonic { background: var(--sonic); }
+.node.host { background: var(--host); border-radius: 18px; }
+.node .name { font-weight: 600; }
+.node .meta { font-size: 11px; color: var(--muted); }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--down); vertical-align: middle; margin-left: 4px; }
+.dot.running { background: var(--up); }
+.react-flow__node.selected .node { outline: 2px solid var(--accent); }
+.react-flow__edge-text { font-size: 10px; }
+.term { grid-area: term; height: 300px; background: #000; border-top: 1px solid var(--border); display: flex; flex-direction: column; }
+.term .bar { display: flex; justify-content: space-between; align-items: center; padding: 4px 8px; background: var(--panel); }
+.term .xterm-host { flex: 1; padding: 4px; min-height: 0; }
+@media (max-width: 700px) {
+  #root { grid-template: "top" auto "canvas" 1fr "side" auto "term" auto / 1fr; }
+  aside { border-left: 0; border-top: 1px solid var(--border); }
+}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="module" src="app.js"></script>
+</body>
+</html>

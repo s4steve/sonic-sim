@@ -37,6 +37,14 @@ SONIC_EXEC = [
 ]
 
 
+class _Dumper(yaml.SafeDumper):
+    """Keep lab.yaml readable: short lists inline, e.g. pos: [80, 80] and - [sw1:Ethernet0, sw2:Ethernet0]."""
+
+
+_Dumper.add_representer(list, lambda d, v: d.represent_sequence(
+    "tag:yaml.org,2002:seq", v, flow_style=all(isinstance(x, (str, int, float)) for x in v)))
+
+
 class LabError(ValueError):
     pass
 
@@ -97,7 +105,7 @@ def save(lab: dict) -> None:
     validate(lab)
     d = lab_dir(lab["name"])
     d.mkdir(parents=True, exist_ok=True)
-    (d / "lab.yaml").write_text(yaml.safe_dump(lab, sort_keys=False))
+    (d / "lab.yaml").write_text(yaml.dump(lab, Dumper=_Dumper, sort_keys=False))
 
 
 def list_labs() -> list[str]:

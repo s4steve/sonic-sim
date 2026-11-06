@@ -1,9 +1,21 @@
-"""HTTP API for the lab engine. Run on the lab host:
-    uv run uvicorn backend.app:app --host <LAN/Tailscale IP> --port 8080
-No auth: it can run commands in lab containers, so never bind it to a public address.
+"""HTTP API + web UI for the lab engine. Run on the lab host:
+    uv run uvicorn backend.app:app --port 8080        # then: ssh -L 8080:localhost:8080 <host>
+No auth: the terminal gives root shells in lab containers, so keep it on localhost
+(SSH tunnel) or a trusted LAN/Tailscale address, never a public one.
 """
-from fastapi import Body, FastAPI, HTTPException, Request
+import asyncio
+import json
+import os
+import pty
+import subprocess
+from fcntl import ioctl
+from pathlib import Path
+from struct import pack
+from termios import TIOCSWINSZ
+
+from fastapi import Body, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.staticfiles import StaticFiles
 
 from . import lab as labs
 from . import node as nodes
@@ -104,3 +116,59 @@ def pull(lab: str, node: str):
     sonic_node(lab, node)
     nodes.pull(lab, node)
     return {"ok": True}
+
+
+@app.websocket("/labs/{lab}/nodes/{node}/terminal")
+async def terminal(ws: WebSocket, lab: str, node: str):
+    """Bridge xterm.js <-> `docker exec -it <node> bash` through a pty.
+    Client sends JSON: {"i": "<keystrokes>"} or {"r": [cols, rows]}; server sends raw bytes."""
+    await ws.accept()
+    try:
+        if node not in labs.load(lab)["nodes"]:
+            raise labs.LabError(f"no node {node!r}")
+    except (labs.LabError, OSError) as e:
+        await ws.close(code=4404, reason=str(e)[:120])
+        return
+    master, slave = pty.openpty()
+    proc = subprocess.Popen(["docker", "exec", "-it", "-e", "TERM=xterm-256color", nodes.container(lab, node), "bash"],
+                            stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
+    os.close(slave)
+    loop = asyncio.get_running_loop()
+    out: asyncio.Queue[bytes] = asyncio.Queue()
+
+    def readable():
+        try:
+            data = os.read(master, 65536)
+        except OSError:  # EIO once the shell exits
+            data = b""
+        if not data:
+            loop.remove_reader(master)
+        out.put_nowait(data)
+
+    loop.add_reader(master, readable)
+
+    async def to_browser():
+        while data := await out.get():
+            await ws.send_bytes(data)
+        await ws.close()
+
+    sender = asyncio.create_task(to_browser())
+    try:
+        while True:
+            msg = json.loads(await ws.receive_text())
+            if "i" in msg:
+                os.write(master, msg["i"].encode())
+            elif "r" in msg:
+                cols, rows = (int(x) for x in msg["r"])
+                ioctl(master, TIOCSWINSZ, pack("HHHH", rows, cols, 0, 0))
+    except (WebSocketDisconnect, RuntimeError, ValueError):
+        pass
+    finally:
+        sender.cancel()
+        loop.remove_reader(master)
+        proc.terminate()
+        os.close(master)
+
+
+# Last, so API routes win: the single-page UI (no build step).
+app.mount("/", StaticFiles(directory=Path(__file__).resolve().parent.parent / "frontend", html=True), name="ui")

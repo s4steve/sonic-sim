@@ -10,9 +10,15 @@ A lab simulator for learning SONiC. Labs run real `docker-sonic-vs` switches wir
 ```bash
 uv sync
 uv run python -m backend.lab            # self-check
-uv run uvicorn backend.app:app --host <LAN or Tailscale IP> --port 8080
+uv run uvicorn backend.app:app --port 8080
 ```
-No auth. It can run commands in lab containers, so never expose it publicly.
+Then from your Mac, tunnel to it and open http://localhost:8080:
+```bash
+ssh -N -L 8080:localhost:8080 syrinx.local
+```
+No auth: the web terminal gives root shells in lab containers, so keep it on localhost behind the tunnel (or a trusted LAN/Tailscale address), never public.
+
+The UI (`frontend/`) has no build step: React, React Flow and xterm.js load as pinned ES modules from esm.sh/jsDelivr, so the browser needs internet access.
 
 ## API
 | | |
@@ -22,3 +28,4 @@ No auth. It can run commands in lab containers, so never expose it publicly.
 | `GET/PUT /labs/{lab}/nodes/{node}/config_db.json`, `frr.conf` | export / import |
 | `POST .../push` | merge saved config into the running node (deletions need a redeploy) |
 | `GET .../diff`, `POST .../pull` | saved vs running diff; save running config |
+| `WS .../terminal` | shell in the node (`docker exec -it … bash`) for the web terminal |
