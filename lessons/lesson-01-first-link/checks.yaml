@@ -1,0 +1,3 @@
+- {from: sw1, ping: 10.0.12.1}
+- {from: h1, ping: 10.0.1.1}
+- {from: h1, ping: 10.0.2.10}

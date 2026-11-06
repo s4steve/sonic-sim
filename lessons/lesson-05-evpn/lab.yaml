@@ -1,0 +1,18 @@
+# EVPN-VXLAN on the leaf-spine underlay: h1 and h2 sit in the same subnet (VLAN 10)
+# on different leaves. VLAN 10 is stretched over VXLAN VNI 1010; BGP EVPN (l2vpn evpn)
+# tells each leaf (VTEP) where the other's MACs live.
+name: lesson-05-evpn
+nodes:
+  spine1: {kind: sonic, pos: [120, 60]}
+  spine2: {kind: sonic, pos: [460, 60]}
+  leaf1: {kind: sonic, pos: [120, 300]}
+  leaf2: {kind: sonic, pos: [460, 300]}
+  h1: {kind: host, ip: 10.10.0.11/24, pos: [120, 500]}
+  h2: {kind: host, ip: 10.10.0.12/24, pos: [460, 500]}
+links:
+- ['spine1:Ethernet0', 'leaf1:Ethernet0']
+- ['spine1:Ethernet4', 'leaf2:Ethernet0']
+- ['spine2:Ethernet0', 'leaf1:Ethernet4']
+- ['spine2:Ethernet4', 'leaf2:Ethernet4']
+- ['leaf1:Ethernet8', 'h1:eth1']
+- ['leaf2:Ethernet8', 'h2:eth1']

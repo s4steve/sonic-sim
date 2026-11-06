@@ -1,0 +1,14 @@
+# Run from the Checks button. Each line is one assertion about the running lab.
+- {node: spine1, bgp_established: 2}
+- {node: spine2, bgp_established: 2}
+- {node: leaf1, bgp_established: 2}
+- {node: leaf2, bgp_established: 2}
+- {node: leaf1, route: 10.0.2.0/24, via: bgp}
+- {node: leaf2, route: 10.0.1.0/24, via: bgp}
+- {node: leaf1, route: 10.255.1.2/32, via: bgp}
+- {from: h1, ping: 10.0.2.10}
+- {from: h2, ping: 10.0.1.10}
+- {node: spine1, route: 10.0.1.0/24, via: bgp}
+- {node: spine1, route: 10.0.2.0/24, via: bgp}
+- {node: spine2, route: 10.0.1.0/24, via: bgp}
+- {node: spine2, route: 10.0.2.0/24, via: bgp}

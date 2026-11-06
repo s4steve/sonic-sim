@@ -15,12 +15,14 @@ Each sonic node's config lives in labs/<lab>/nodes/<node>/{config_db.json,frr.co
 import json
 import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
 import yaml
 
 LABS_DIR = Path(os.environ.get("SONIC_SIM_LABS", Path(__file__).resolve().parent.parent / "labs"))
+LESSONS_DIR = Path(__file__).resolve().parent.parent / "lessons"
 SONIC_IMAGE = os.environ.get("SONIC_SIM_IMAGE", "docker-sonic-vs:202511")
 HOST_IMAGE = "ghcr.io/hellt/network-multitool"
 SONIC_PORTS = [f"Ethernet{4 * i}" for i in range(32)]  # Force10-S6000 hwsku in docker-sonic-vs
@@ -185,6 +187,39 @@ def status(lab: str) -> list[dict]:
     prefix = f"clab-{lab}-"
     return [{"node": c["name"].removeprefix(prefix), "container": c["name"], "state": c["state"],
              "ip": c.get("ipv4_address", "")} for c in rows]
+
+
+
+# A lesson is a lab template (lessons/<name>/: lab.yaml, nodes/, checks.yaml, lesson.md) plus
+# solution/nodes/. Starting one copies it to labs/<name>, where the learner works on it.
+def list_lessons() -> list[dict]:
+    out = []
+    for md in sorted(LESSONS_DIR.glob("*/lesson.md")):
+        title = next((l[2:].strip() for l in md.read_text().splitlines() if l.startswith("# ")), md.parent.name)
+        out.append({"name": md.parent.name, "title": title, "started": (LABS_DIR / md.parent.name / "lab.yaml").exists()})
+    return out
+
+
+def lesson_dir(name: str) -> Path:
+    d = LESSONS_DIR / check_name(name)
+    if not (d / "lesson.md").exists():
+        raise LabError(f"no lesson {name!r}")
+    return d
+
+
+def start_lesson(name: str) -> None:
+    """(Re)start a lesson from scratch: tears down any running copy and discards the learner's work."""
+    src, dst = lesson_dir(name), lab_dir(name)
+    if (dst / "lab.yaml").exists() and status(name):
+        destroy(name)
+    shutil.rmtree(dst, ignore_errors=True)
+    shutil.copytree(src, dst, ignore=shutil.ignore_patterns("solution"))
+
+
+def load_solution(name: str) -> None:
+    """Overwrite the learner's node configs with the lesson's solution. Takes effect on (re)deploy."""
+    sol = lesson_dir(name) / "solution" / "nodes"
+    shutil.copytree(sol, lab_dir(name) / "nodes", dirs_exist_ok=True)
 
 
 if __name__ == "__main__":  # self-check: python -m backend.lab

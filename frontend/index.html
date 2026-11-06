@@ -14,6 +14,7 @@
   "@xyflow/react": "https://esm.sh/@xyflow/react@12.3.6?external=react,react-dom",
   "react-dom": "https://esm.sh/react-dom@18.3.1?external=react",
   "htm": "https://esm.sh/htm@3.1.1",
+  "marked": "https://esm.sh/marked@12.0.2",
   "@xterm/xterm": "https://esm.sh/@xterm/xterm@5.5.0",
   "@xterm/addon-fit": "https://esm.sh/@xterm/addon-fit@0.10.0"
 }}
@@ -71,6 +72,15 @@ textarea.code { width: 100%; height: 50vh; font: 12px/1.4 ui-monospace, monospac
   border: 1px solid var(--border); border-radius: 6px; padding: 8px; }
 .dlg-body label.check.inline { display: inline-flex; margin-right: 12px; }
 aside .grid2 { gap: 6px; }
+#root.lesson { grid-template-columns: 1fr 400px; }
+.lesson-md { font-size: 13px; line-height: 1.5; }
+.lesson-md h1 { font-size: 16px; margin: 0 0 8px; }
+.lesson-md h2 { font-size: 14px; margin: 14px 0 4px; }
+.lesson-md code { font: 12px ui-monospace, monospace; background: var(--bg); padding: 0 3px; border-radius: 3px; }
+.lesson-md ol, .lesson-md ul { padding-left: 20px; }
+.lesson-md details { margin: 4px 0; color: var(--muted); }
+.lesson-bar { position: sticky; top: -12px; background: var(--panel); padding: 8px 0; border-bottom: 1px solid var(--border); margin: -12px 0 8px; z-index: 1; }
+.lesson-list .item { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
 .result { padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
 .react-flow__node.selected .node { outline: 2px solid var(--accent); }
 .end { position: absolute; font-size: 10px; line-height: 1.25; text-align: center; padding: 1px 4px; border-radius: 4px;

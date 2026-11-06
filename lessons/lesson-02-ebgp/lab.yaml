@@ -1,0 +1,10 @@
+name: lesson-02-ebgp
+nodes:
+  sw1: {kind: sonic, pos: [80, 80]}
+  sw2: {kind: sonic, pos: [340, 80]}
+  h1: {kind: host, ip: 10.0.1.10/24, gw: 10.0.1.1, pos: [80, 280]}
+  h2: {kind: host, ip: 10.0.2.10/24, gw: 10.0.2.1, pos: [340, 280]}
+links:
+- ['sw1:Ethernet0', 'sw2:Ethernet0']
+- ['sw1:Ethernet4', 'h1:eth1']
+- ['sw2:Ethernet4', 'h2:eth1']

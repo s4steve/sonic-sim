@@ -1,0 +1,38 @@
+{
+    "DEVICE_METADATA": {
+        "localhost": {
+            "hostname": "sw1"
+        }
+    },
+    "INTERFACE": {
+        "Ethernet8": {},
+        "Ethernet8|10.0.1.1/24": {}
+    },
+    "PORT": {
+        "Ethernet0": {
+            "admin_status": "up"
+        },
+        "Ethernet4": {
+            "admin_status": "up"
+        },
+        "Ethernet8": {
+            "admin_status": "up"
+        }
+    },
+    "PORTCHANNEL": {
+        "PortChannel1": {
+            "admin_status": "up",
+            "lacp_key": "auto",
+            "min_links": "1",
+            "mtu": "9100"
+        }
+    },
+    "PORTCHANNEL_INTERFACE": {
+        "PortChannel1": {},
+        "PortChannel1|10.0.12.0/31": {}
+    },
+    "PORTCHANNEL_MEMBER": {
+        "PortChannel1|Ethernet0": {},
+        "PortChannel1|Ethernet4": {}
+    }
+}

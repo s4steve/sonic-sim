@@ -1,0 +1,6 @@
+# EVPN: underlay first, then the overlay.
+- {node: leaf1, bgp_established: 2}
+- {node: leaf2, bgp_established: 2}
+- {node: leaf1, route: 10.255.1.2/32, via: bgp}   # the other VTEP is reachable
+- {from: h1, ping: 10.10.0.12}                    # same subnet, different leaves: bridged over VXLAN
+- {from: h2, ping: 10.10.0.11}

@@ -1,0 +1,21 @@
+{
+    "DEVICE_METADATA": {
+        "localhost": {
+            "hostname": "sw1"
+        }
+    },
+    "INTERFACE": {
+        "Ethernet0": {},
+        "Ethernet0|10.0.12.0/31": {},
+        "Ethernet4": {},
+        "Ethernet4|10.0.1.1/24": {}
+    },
+    "PORT": {
+        "Ethernet0": {
+            "admin_status": "up"
+        },
+        "Ethernet4": {
+            "admin_status": "up"
+        }
+    }
+}

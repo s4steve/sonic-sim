@@ -5,3 +5,5 @@ uv.lock
 labs/*/clab-*/
 labs/*/*.clab.yml
 labs/*/.*.clab.yml.bak
+# started lessons are the learner's working copies
+labs/lesson-*/

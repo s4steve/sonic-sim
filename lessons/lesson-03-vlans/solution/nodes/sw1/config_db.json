@@ -1,0 +1,43 @@
+{
+    "DEVICE_METADATA": {
+        "localhost": {
+            "hostname": "sw1"
+        }
+    },
+    "PORT": {
+        "Ethernet0": {
+            "admin_status": "up"
+        },
+        "Ethernet4": {
+            "admin_status": "up"
+        },
+        "Ethernet8": {
+            "admin_status": "up"
+        }
+    },
+    "VLAN": {
+        "Vlan10": {
+            "vlanid": "10"
+        },
+        "Vlan20": {
+            "vlanid": "20"
+        }
+    },
+    "VLAN_INTERFACE": {
+        "Vlan10": {},
+        "Vlan10|10.10.0.1/24": {},
+        "Vlan20": {},
+        "Vlan20|10.20.0.1/24": {}
+    },
+    "VLAN_MEMBER": {
+        "Vlan10|Ethernet0": {
+            "tagging_mode": "untagged"
+        },
+        "Vlan10|Ethernet4": {
+            "tagging_mode": "untagged"
+        },
+        "Vlan20|Ethernet8": {
+            "tagging_mode": "untagged"
+        }
+    }
+}

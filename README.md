@@ -7,6 +7,18 @@ A lab simulator for learning SONiC. Labs run real `docker-sonic-vs` switches wir
 - `labs/<name>/nodes/<node>/config_db.json` and `frr.conf`: each switch's config. CONFIG_DB is merged over sonic-vs defaults at deploy; BGP lives in FRR (see `docs/spike.md`)
 - `backend/`: FastAPI lab engine
 
+## Lessons
+Click **Lessons** to start one. Each is a lab with a goal, steps, and checks; "Check my work" runs them, and "Load solution" (then Redeploy) shows a working answer.
+
+1. Bring up your first routed link (ports, IPs, static routes)
+2. Replace static routes with eBGP
+3. VLANs and routing between them (SVIs)
+4. Bundle two links into a PortChannel (LACP)
+5. Stretch a subnet across leaves with EVPN-VXLAN
+6. Troubleshoot a broken fabric (three planted faults)
+
+A lesson lives in `lessons/<name>/`: the same files as a lab, plus `lesson.md` and `solution/nodes/`. Starting it copies it to `labs/<name>` (git-ignored, so your work stays local). Every lesson is verified to fail its checks at the start and pass them with its solution.
+
 ## Sample labs
 - `two-switch`: h1 – sw1 ⇄ sw2 – h2 with one eBGP session. The smallest useful lab.
 - `leaf-spine`: 2 spines, 2 leaves, 2 hosts. eBGP from each leaf to both spines, ECMP between them. Shut a leaf uplink (Configure → Ports → admin down → Save & apply) to watch the cable go red, BGP drop to 1/2, and the pings keep passing through the other spine.
@@ -46,4 +58,5 @@ The UI (`frontend/`) has no build step: React, React Flow and xterm.js load as p
 | `GET/PUT /labs/{lab}/checks`, `POST .../checks/run` | read/save checks.yaml, run it |
 | `GET /labs/{lab}/capture?node=&port=&seconds=` | pcap of one cable end |
 | `GET/POST /labs/{lab}/links/{i}/impair` | read / set `{down, delay_ms, loss_pct}` on link i |
+| `GET /lessons`, `POST /lessons/{name}/start`, `POST /lessons/{name}/solution` | list, (re)start, load solution |
 | `WS .../terminal` | shell in the node (`docker exec -it … bash`) for the web terminal |

@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { ReactFlow, ReactFlowProvider, useReactFlow, Background, Controls, Handle, Position, ConnectionMode, applyNodeChanges, BaseEdge, EdgeLabelRenderer, getBezierPath } from "@xyflow/react";
 import htm from "htm";
+import { marked } from "marked";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { PORTS, api, ipEntries, membership } from "./config.js";
@@ -36,8 +37,8 @@ function CableEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, tar
     <${BaseEdge} id=${id} path=${path} style=${{ ...(data.oper && { stroke: data.oper === "up" ? "var(--up)" : "var(--err)",
       strokeWidth: 2, strokeDasharray: data.oper === "up" ? undefined : "6 4" }), ...(selected && { stroke: "var(--accent)", strokeWidth: 3 }) }} />
     <${EdgeLabelRenderer}>
-      <div class="end" style=${{ transform: at(0.22) }}>${data.a}</div>
-      <div class="end" style=${{ transform: at(0.78) }}>${data.b}</div>
+      <div class="end" style=${{ transform: at(0.3) }}>${data.a}</div>
+      <div class="end" style=${{ transform: at(0.7) }}>${data.b}</div>
     </${EdgeLabelRenderer}>
   </${React.Fragment}>`;
 }
@@ -68,6 +69,8 @@ function App() {
   const [editing, setEditing] = useState(null);
   const [live, setLive] = useState({}); // sonic node -> {ports, bgp} while deployed
   const [checksOpen, setChecksOpen] = useState(false);
+  const [lessonMd, setLessonMd] = useState(null); // lesson.md when this lab is a lesson
+  const [lessonsOpen, setLessonsOpen] = useState(false);
   const flow = useReactFlow();
   const mainRef = useRef();
 
@@ -78,13 +81,15 @@ function App() {
   };
 
   useEffect(() => { api("/labs").then((l) => { setLabs(l); if (l[0]) open(l[0]); }).catch((e) => say(e.message, true)); }, []);
+  useEffect(() => { document.getElementById("root").classList.toggle("lesson", !!lessonMd); }, [lessonMd]);
 
   async function open(name) {
     const data = await api(`/labs/${name}`);
-    const { status: st, ...l } = data;
+    const { status: st, lesson, ...l } = data; // keep lesson text out of lab.yaml
     l.links ||= [];
     const s = Object.fromEntries(st.map((c) => [c.node, c.state]));
-    setLab(l); setStatus(s); setFlowNodes(toFlowNodes(l, s)); setSel(null); setDirty(false); setTerm(null); setConfigs({}); setLive({});
+    setLab(l); setStatus(s); setFlowNodes(toFlowNodes(l, s)); setSel(null); setDirty(false); setTerm(null); setConfigs({}); setLive({}); setLessonMd(lesson);
+    setTimeout(() => flow.fitView({ padding: 0.15 }), 300); // after the new nodes and the lesson panel's width settle
     for (const [n, spec] of Object.entries(l.nodes)) if (spec.kind === "sonic")
       api(`/labs/${name}/nodes/${n}/config_db.json`).then((c) => setConfigs((cs) => ({ ...cs, [n]: c }))).catch(() => {});
   }
@@ -187,6 +192,7 @@ function App() {
         onClick=${() => confirm("Destroy all lab containers?") && run("Destroy", async () => {
           await api(`/labs/${lab.name}/destroy`, { method: "POST" }); setStatus({}); setTerm(null); })}>Destroy</button>
       <button disabled=${!lab} onClick=${() => setChecksOpen(true)}>Checks</button>
+      <button onClick=${() => setLessonsOpen(true)}>Lessons</button>
       <span class=${"msg" + (msg.err ? " err" : "")}>${dirty ? "unsaved changes · " : ""}${msg.text}</span>
     </header>
     <main ref=${mainRef}>
@@ -202,7 +208,11 @@ function App() {
       </${ReactFlow}>`}
     </main>
     <aside>${lab && html`<${Side} lab=${lab} sel=${sel} status=${status} edit=${edit} setSel=${setSel}
-      openTerm=${(node) => setTerm(node)} configure=${setEditing} live=${live} />`}</aside>
+      openTerm=${(node) => setTerm(node)} configure=${setEditing} live=${live} lessonMd=${lessonMd} running=${anyRunning}
+      reload=${() => open(lab.name)} say=${say} />`}</aside>
+    ${lessonsOpen && html`<${Lessons} onClose=${() => setLessonsOpen(false)} openLab=${async (name) => {
+      setLessonsOpen(false); setLabs(await api("/labs")); await open(name);
+      say("Lesson ready. Deploy it, then follow the steps on the right."); }} />`}
     ${checksOpen && html`<${Checks} lab=${lab.name} running=${anyRunning} onClose=${() => setChecksOpen(false)} />`}
     ${editing && html`<${ConfigEditor} key=${editing} lab=${lab} node=${editing} running=${status[editing] === "running"}
       onClose=${() => setEditing(null)} onSaved=${(n, c) => setConfigs((cs) => ({ ...cs, [n]: c }))} />`}
@@ -210,7 +220,7 @@ function App() {
   `;
 }
 
-function Side({ lab, sel, status, edit, setSel, openTerm, configure, live }) {
+function Side({ lab, sel, status, edit, setSel, openTerm, configure, live, lessonMd, running, reload, say }) {
   if (sel?.node && lab.nodes[sel.node]) {
     const n = sel.node, spec = lab.nodes[n];
     const set = (k) => (e) => edit((l) => { l.nodes[n][k] = e.target.value; });
@@ -252,6 +262,7 @@ function Side({ lab, sel, status, edit, setSel, openTerm, configure, live }) {
         : html`<span key=${ep} class="muted">${node} not running</span>`; })}</div>
       <p class="hint">Captures on that end of the cable for 10 seconds, then downloads a .pcap.</p>`;
   }
+  if (lessonMd) return html`<${LessonPanel} lab=${lab.name} md=${lessonMd} running=${running} reload=${reload} say=${say} />`;
   return html`<h2>${lab.name}</h2>
     <p class="hint">Add switches and hosts from the toolbar. Drag from a node's side dot to another node to link them;
       the next free port on each side is picked for you. Click a node or link to edit it.</p>
@@ -278,6 +289,64 @@ function Impair({ lab, i }) {
     ${err && html`<p class="warn">${err}</p>`}
     <p class="hint">Cutting drops carrier like a pulled cable. BGP only notices when its hold timer expires (up to 180 s); until then
       ECMP keeps hashing some traffic into the dead path. Shutting the port in config (admin down) is noticed at once. A redeploy clears all faults.</p>`;
+}
+
+function Lessons({ onClose, openLab }) {
+  const [list, setList] = useState(null);
+  const [busy, setBusy] = useState("");
+  const [err, setErr] = useState("");
+  useEffect(() => { api("/lessons").then(setList).catch((e) => setErr(e.message)); }, []);
+  async function start(l) {
+    if (l.started && !confirm(`Restart "${l.title}"? Your work in it will be discarded and its containers removed.`)) return;
+    setBusy(l.name);
+    try { await api(`/lessons/${l.name}/start`, { method: "POST" }); await openLab(l.name); }
+    catch (e) { setErr(e.message); setBusy(""); }
+  }
+  return html`<div class="modal"><div class="dialog wide" style=${{ height: "auto", maxHeight: "90vh" }}>
+    <div class="dlg-head"><h2>Lessons</h2><span style=${{ flex: 1 }}></span><button onClick=${onClose}>Close</button></div>
+    <div class="dlg-body lesson-list">
+      <p class="hint" style=${{ marginTop: 0 }}>Each lesson is a lab with a goal and checks. Start it, deploy it, configure until
+        "Check my work" passes. Lessons build on each other.</p>
+      ${err && html`<p class="warn">${err}</p>`}
+      ${list?.map((l) => html`<div class="item" key=${l.name}>
+        <div>${l.title}<div class="muted">${l.name}</div></div>
+        <div class="row" style=${{ marginTop: 0, flexWrap: "nowrap" }}>
+          ${l.started && html`<button disabled=${!!busy} onClick=${() => openLab(l.name)}>Continue</button>`}
+          <button class=${l.started ? "" : "primary"} disabled=${!!busy} onClick=${() => start(l)}>
+            ${busy === l.name ? "Starting…" : l.started ? "Restart" : "Start"}</button>
+        </div>
+      </div>`)}
+    </div>
+  </div></div>`;
+}
+
+function LessonPanel({ lab, md, running, reload, say }) {
+  const [results, setResults] = useState(null);
+  const [busy, setBusy] = useState(false);
+  async function check() {
+    setBusy(true); setResults(null);
+    try { setResults(await api(`/labs/${lab}/checks/run`, { method: "POST" })); } catch (e) { say(e.message, true); } finally { setBusy(false); }
+  }
+  async function solution() {
+    if (!confirm("Replace your configs with the solution? Then Redeploy to run it.")) return;
+    try { await api(`/lessons/${lab}/solution`, { method: "POST" }); setResults(null); await reload(); say("Solution loaded. Redeploy to apply it."); }
+    catch (e) { say(e.message, true); }
+  }
+  const passed = results?.filter((r) => r.ok).length;
+  return html`<div class="lesson-bar">
+      <div class="row" style=${{ marginTop: 0 }}>
+        <button class="primary" disabled=${busy || !running} onClick=${check}>${busy ? "Checking…" : "Check my work"}</button>
+        <button onClick=${solution}>Load solution</button>
+      </div>
+      ${!running && html`<p class="hint">Deploy the lab to check your work.</p>`}
+      ${results && html`<div style=${{ marginTop: "8px" }}>
+        <strong class=${passed === results.length ? "ok" : "warn"}>${passed === results.length ? "🎉 All checks pass!" : `${passed}/${results.length} checks pass`}</strong>
+        ${results.map((r, i) => html`<div key=${i} class="muted"><span class=${r.ok ? "ok" : "warn"}>${r.ok ? "✓" : "✗"}</span> ${r.check}
+          ${!r.ok && html`<div style=${{ marginLeft: "16px" }}>${r.detail}</div>`}</div>`)}
+      </div>`}
+    </div>
+    ${/* lesson.md comes from this repo's lessons/ folder, so rendering its HTML (for <details> hints) is fine */""}
+    <div class="lesson-md" dangerouslySetInnerHTML=${{ __html: marked.parse(md) }}></div>`;
 }
 
 function bgpBadge(l) {

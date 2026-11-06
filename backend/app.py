@@ -49,7 +49,25 @@ def list_labs():
 def get_lab(lab: str):
     if not (labs.lab_dir(lab) / "lab.yaml").exists():
         raise HTTPException(404, f"no lab {lab!r}")
-    return {**labs.load(lab), "status": labs.status(lab)}
+    lesson = labs.lab_dir(lab) / "lesson.md"
+    return {**labs.load(lab), "status": labs.status(lab), "lesson": lesson.read_text() if lesson.exists() else None}
+
+
+@app.get("/lessons")
+def list_lessons():
+    return labs.list_lessons()
+
+
+@app.post("/lessons/{name}/start")
+def start_lesson(name: str):
+    labs.start_lesson(name)
+    return {"lab": name}
+
+
+@app.post("/lessons/{name}/solution")
+def load_solution(name: str):
+    labs.load_solution(name)
+    return {"ok": True, "note": "Solution configs saved. Redeploy to run them."}
 
 
 @app.put("/labs/{lab}")

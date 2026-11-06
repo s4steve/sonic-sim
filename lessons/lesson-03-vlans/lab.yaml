@@ -1,0 +1,10 @@
+name: lesson-03-vlans
+nodes:
+  sw1: {kind: sonic, pos: [250, 40]}
+  h1: {kind: host, ip: 10.10.0.11/24, gw: 10.10.0.1, pos: [0, 340]}
+  h2: {kind: host, ip: 10.10.0.12/24, gw: 10.10.0.1, pos: [250, 340]}
+  h3: {kind: host, ip: 10.20.0.13/24, gw: 10.20.0.1, pos: [500, 340]}
+links:
+- ['sw1:Ethernet0', 'h1:eth1']
+- ['sw1:Ethernet4', 'h2:eth1']
+- ['sw1:Ethernet8', 'h3:eth1']
