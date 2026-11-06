@@ -1,0 +1,35 @@
+# Phase 0 spike, round 2: same lab, but configs applied at deploy time from files.
+# sonic-vs has no startup-config support and start.sh mv's over /etc/sonic/config_db.json
+# (so it can't be bind-mounted). Instead: mount cfg/<node> at /cfg, then after boot
+# merge config_db.json into CONFIG_DB and load frr.conf into FRR.
+name: spike
+
+topology:
+  kinds:
+    sonic-vs:
+      image: docker-sonic-vs:202511
+      exec:
+        - bash -c 'until supervisorctl status zebra | grep -q RUNNING; do sleep 2; done'
+        - sonic-cfggen -j /cfg/config_db.json --write-to-db
+        - supervisorctl start bgpd
+        - bash -c 'sleep 2; vtysh -f /cfg/frr.conf'
+  nodes:
+    sw1: {kind: sonic-vs, binds: ["cfg/sw1:/cfg:ro"]}
+    sw2: {kind: sonic-vs, binds: ["cfg/sw2:/cfg:ro"]}
+    h1:
+      kind: linux
+      image: ghcr.io/hellt/network-multitool
+      exec:
+        - ip addr add 10.0.1.10/24 dev eth1
+        - ip route replace default via 10.0.1.1
+    h2:
+      kind: linux
+      image: ghcr.io/hellt/network-multitool
+      exec:
+        - ip addr add 10.0.2.10/24 dev eth1
+        - ip route replace default via 10.0.2.1
+
+  links:
+    - endpoints: ["sw1:eth1", "sw2:eth1"]
+    - endpoints: ["sw1:eth2", "h1:eth1"]
+    - endpoints: ["sw2:eth2", "h2:eth1"]

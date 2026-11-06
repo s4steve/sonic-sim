@@ -1,0 +1,26 @@
+# Phase 0 spike: h1 -- sw1 -- sw2 -- h2, eBGP between sw1 (AS65001) and sw2 (AS65002).
+# Deploy on syrinx: containerlab deploy -t spike.clab.yml
+name: spike
+
+topology:
+  nodes:
+    sw1: {kind: sonic-vs, image: docker-sonic-vs:202511}
+    sw2: {kind: sonic-vs, image: docker-sonic-vs:202511}
+    h1:
+      kind: linux
+      image: ghcr.io/hellt/network-multitool
+      exec:
+        - ip addr add 10.0.1.10/24 dev eth1
+        - ip route replace default via 10.0.1.1
+    h2:
+      kind: linux
+      image: ghcr.io/hellt/network-multitool
+      exec:
+        - ip addr add 10.0.2.10/24 dev eth1
+        - ip route replace default via 10.0.2.1
+
+  links:
+    # eth1 is expected to appear as Ethernet0, eth2 as Ethernet4 (to be confirmed by the spike)
+    - endpoints: ["sw1:eth1", "sw2:eth1"]
+    - endpoints: ["sw1:eth2", "h1:eth1"]
+    - endpoints: ["sw2:eth2", "h2:eth1"]
